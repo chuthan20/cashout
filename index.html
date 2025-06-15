@@ -38,8 +38,13 @@
 
     .denomination {
       display: flex;
-      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
       margin: 10px 0;
+    }
+
+    .denomination label {
+      flex: 1;
     }
 
     .denomination input {
@@ -47,56 +52,47 @@
       padding: 5px;
       font-size: 16px;
       text-align: center;
+      cursor: pointer;
     }
 
     .keyboard {
       display: none;
       position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
       background: #fff;
-      border: 1px solid #ccc;
-      padding: 10px;
+      border-top: 1px solid #ccc;
+      padding: 5px 10px 10px 10px;
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 10px;
+      gap: 5px;
       z-index: 1000;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
       max-width: 100vw;
-      overflow: auto;
     }
 
     .keyboard button {
-      padding: 15px;
-      font-size: 18px;
+      padding: 12px;
+      font-size: 20px;
       border: 1px solid #999;
       background: #f9f9f9;
       border-radius: 5px;
+      touch-action: manipulation;
     }
 
-    .summary {
-      background: #e8f4e5;
-      padding: 10px;
-      margin-top: 10px;
-      border-left: 5px solid #4caf50;
-    }
-
-    .grand-summary {
-      background: #d1ecf1;
-      padding: 15px;
-      border-left: 5px solid #17a2b8;
+    .keyboard-header {
+      grid-column: span 3;
+      text-align: center;
       font-weight: bold;
-      margin-top: 30px;
+      margin-bottom: 3px;
+      font-size: 14px;
     }
 
-    button.add-register {
-      display: block;
-      width: 100%;
+    .summary, .grand-summary, .register-summary, .final-summary {
+      margin-top: 20px;
       padding: 10px;
-      margin: 20px 0;
-      background: #2196f3;
-      color: white;
-      border: none;
-      border-radius: 5px;
-      font-size: 16px;
+      border-left: 5px solid #4caf50;
+      background: #f9f9f9;
     }
   </style>
 </head>
@@ -104,8 +100,21 @@
   <h1>Cash Counter</h1>
   <div id="registers"></div>
   <button class="add-register">Add Register</button>
+  <div class="register-summary" id="register-summary"></div>
   <div class="grand-summary" id="grand-summary">Grand Total: $0.00</div>
-  <div class="keyboard" id="keyboard"></div>
+  <div class="final-summary">
+    <label>Starting Float: $<input type="number" id="starting-float" /></label>
+    <label>Cash Sales: $<input type="number" id="cash-sales" /></label>
+    <span id="over-short">Over/Short: $0.00</span>
+    <span id="take-out-summary"></span>
+  </div>
+  <div class="keyboard" id="keyboard">
+    <div class="keyboard-header" id="keyboard-field-name"></div>
+    <button>1</button><button>2</button><button>3</button>
+    <button>4</button><button>5</button><button>6</button>
+    <button>7</button><button>8</button><button>9</button>
+    <button>←</button><button>0</button><button>⨉</button>
+  </div>
 
   <script>
     const denominations = [
@@ -114,139 +123,152 @@
       { name: '$20 Bills', value: 20, type: 'bill' },
       { name: '$10 Bills', value: 10, type: 'bill' },
       { name: '$5 Bills', value: 5, type: 'bill' },
-      { name: '$1 Bills', value: 1, type: 'bill' },
-      { name: '$1 Coins', value: 1, type: 'loose' },
-      { name: '50¢ Coins', value: 0.5, type: 'loose' },
-      { name: '25¢ Coins', value: 0.25, type: 'loose' },
-      { name: '10¢ Coins', value: 0.10, type: 'loose' },
-      { name: '5¢ Coins', value: 0.05, type: 'loose' },
-      { name: '1¢ Coins', value: 0.01, type: 'loose' },
+      { name: '$2 Coins', value: 2, type: 'coin' },
+      { name: '$1 Coins', value: 1, type: 'coin' },
+      { name: '25¢ Coins', value: 0.25, type: 'coin' },
+      { name: '10¢ Coins', value: 0.10, type: 'coin' },
+      { name: '5¢ Coins', value: 0.05, type: 'coin' }
     ];
+
+    const coinRolls = {
+      '5¢ Coins': 2.00,
+      '10¢ Coins': 5.00,
+      '25¢ Coins': 10.00,
+      '$1 Coins': 25.00,
+      '$2 Coins': 50.00
+    };
+
+    const registersContainer = document.getElementById("registers");
+    const keyboard = document.getElementById("keyboard");
+    const keyboardFieldName = document.getElementById("keyboard-field-name");
+    const grandSummary = document.getElementById("grand-summary");
+    const registerSummary = document.getElementById("register-summary");
+    const startingFloatInput = document.getElementById("starting-float");
+    const cashSalesInput = document.getElementById("cash-sales");
+    const overShortDisplay = document.getElementById("over-short");
 
     let currentInput = null;
 
-    function createRegister(index) {
-      const container = document.createElement('div');
-      container.className = 'register';
-      container.innerHTML = `<h3>Register #${index + 1}</h3>`;
-
-      const section = document.createElement('div');
-      section.className = 'section';
-
-      const col1 = document.createElement('div');
-      col1.className = 'column';
-      const col2 = document.createElement('div');
-      col2.className = 'column';
-
-      denominations.forEach((denom, i) => {
-        const row = document.createElement('div');
-        row.className = 'denomination';
-        row.innerHTML = `
-          <label>${denom.name}</label>
-          <input type="text" readonly data-index="${index}" data-denom="${i}" value="0" />
-        `;
-        (denom.type === 'bill' ? col1 : col2).appendChild(row);
+    function calculateTotals() {
+      let grandTotal = 0;
+      let summaries = [];
+      const registers = registersContainer.querySelectorAll(".register");
+      registers.forEach((register, i) => {
+        let total = 0;
+        const inputs = register.querySelectorAll("input");
+        inputs.forEach(input => {
+          const name = input.dataset.name;
+          const denom = denominations.find(d => d.name === name);
+          const type = input.dataset.type;
+          const qty = parseInt(input.value || "0", 10);
+          if (isNaN(qty)) return;
+          let value = denom.value * qty;
+          if (type === "rolls" && coinRolls[name]) {
+            value = coinRolls[name] * qty;
+          }
+          total += value;
+        });
+        grandTotal += total;
+        summaries.push(`Register ${i + 1}: $${total.toFixed(2)}`);
       });
+      registerSummary.innerHTML = summaries.join('<br>');
+      grandSummary.innerText = `Grand Total: $${grandTotal.toFixed(2)}`;
 
-      section.appendChild(col1);
-      section.appendChild(col2);
-      container.appendChild(section);
-
-      const summary = document.createElement('div');
-      summary.className = 'summary';
-      summary.innerText = 'Total: $0.00';
-      container.appendChild(summary);
-
-      return container;
+      const startingFloat = parseFloat(startingFloatInput.value) || 0;
+      const cashSales = parseFloat(cashSalesInput.value) || 0;
+      const expected = startingFloat + cashSales;
+      const overShort = grandTotal - expected;
+      overShortDisplay.innerText = `Over/Short: $${overShort.toFixed(2)}`;
     }
 
-    function updateTotal(registerElem) {
-      let total = 0;
-      const inputs = registerElem.querySelectorAll('input');
-      inputs.forEach(input => {
-        const denomIndex = input.getAttribute('data-denom');
-        const count = parseInt(input.value) || 0;
-        total += count * denominations[denomIndex].value;
+    function createRegister() {
+      const wrapper = document.createElement("div");
+      wrapper.className = "register";
+      const section = document.createElement("div");
+      section.className = "section";
+      const column1 = document.createElement("div");
+      column1.className = "column";
+      const column2 = document.createElement("div");
+      column2.className = "column";
+
+      denominations.forEach(denom => {
+        const row = document.createElement("div");
+        row.className = "denomination";
+        const label = document.createElement("label");
+        label.innerText = denom.name;
+
+        const inputLoose = document.createElement("input");
+        inputLoose.type = "text";
+        inputLoose.placeholder = "Loose";
+        inputLoose.dataset.type = "loose";
+        inputLoose.dataset.name = denom.name;
+        inputLoose.readOnly = true;
+
+        inputLoose.addEventListener("click", () => showKeyboard(inputLoose));
+        inputLoose.addEventListener("input", calculateTotals);
+
+        row.appendChild(label);
+        row.appendChild(inputLoose);
+
+        if (denom.name in coinRolls) {
+          const inputRoll = document.createElement("input");
+          inputRoll.type = "text";
+          inputRoll.placeholder = "Rolls";
+          inputRoll.dataset.type = "rolls";
+          inputRoll.dataset.name = denom.name;
+          inputRoll.readOnly = true;
+
+          inputRoll.addEventListener("click", () => showKeyboard(inputRoll));
+          inputRoll.addEventListener("input", calculateTotals);
+
+          row.appendChild(inputRoll);
+        }
+
+        (denom.type === 'bill' ? column1 : column2).appendChild(row);
       });
-      registerElem.querySelector('.summary').innerText = `Total: $${total.toFixed(2)}`;
-      updateGlobalTotal();
+
+      section.appendChild(column1);
+      section.appendChild(column2);
+      wrapper.appendChild(section);
+      registersContainer.appendChild(wrapper);
     }
 
-    function updateGlobalTotal() {
-      const allRegs = document.querySelectorAll('.register');
-      let sum = 0;
-      allRegs.forEach(reg => {
-        const totalText = reg.querySelector('.summary').innerText;
-        const total = parseFloat(totalText.replace(/[^\d.]/g, '')) || 0;
-        sum += total;
-      });
-      document.getElementById('grand-summary').innerText = `Grand Total: $${sum.toFixed(2)}`;
-      document.title = `Total: $${sum.toFixed(2)}`;
-    }
-
-    function openKeyboard(input) {
+    function showKeyboard(input) {
       currentInput = input;
-      const keyboard = document.getElementById('keyboard');
-      keyboard.innerHTML = '';
-
-      ['1','2','3','4','5','6','7','8','9','0','←','C'].forEach(char => {
-        const btn = document.createElement('button');
-        btn.textContent = char;
-        btn.onclick = () => handleKeyboardInput(char);
-        keyboard.appendChild(btn);
-      });
-
-      const rect = input.getBoundingClientRect();
-      const keyboardHeight = 250;
-      let top = rect.bottom + window.scrollY + 5;
-      let left = rect.left + window.scrollX;
-
-      if (top + keyboardHeight > window.innerHeight + window.scrollY) {
-        top = window.innerHeight + window.scrollY - keyboardHeight - 10;
-      }
-
-      const keyboardWidth = 220; // approximate width of keyboard
-      if (left + keyboardWidth > window.innerWidth + window.scrollX) {
-        left = window.innerWidth + window.scrollX - keyboardWidth - 10;
-      }
-
-      keyboard.style.left = `${Math.max(0, left)}px`;
-      keyboard.style.top = `${top}px`;
+      keyboardFieldName.innerText = `Editing: ${input.dataset.name} (${input.placeholder})`;
       keyboard.style.display = 'grid';
     }
 
-    function handleKeyboardInput(char) {
-      if (!currentInput) return;
-      let val = currentInput.value;
-      if (char === 'C') val = '0';
-      else if (char === '←') val = val.slice(0, -1) || '0';
-      else val = val === '0' ? char : val + char;
-      currentInput.value = val;
-      const register = currentInput.closest('.register');
-      updateTotal(register);
-    }
+    keyboard.addEventListener("click", e => {
+      if (!currentInput || e.target.tagName !== "BUTTON") return;
+      const key = e.target.innerText;
+      if (key === '⨉') {
+        currentInput.value = '';
+      } else if (key === '←') {
+        currentInput.value = currentInput.value.slice(0, -1);
+      } else {
+        currentInput.value += key;
+      }
+      currentInput.dispatchEvent(new Event("input"));
+    });
 
-    document.addEventListener('click', e => {
-      const keyboard = document.getElementById('keyboard');
-      if (e.target.tagName === 'INPUT') {
-        openKeyboard(e.target);
-      } else if (!keyboard.contains(e.target)) {
-        keyboard.style.display = 'none';
+    document.addEventListener("click", e => {
+      if (!keyboard.contains(e.target) && !e.target.matches("input")) {
+        keyboard.style.display = "none";
+        currentInput = null;
       }
     });
 
-    window.addEventListener('resize', () => {
-      if (currentInput) openKeyboard(currentInput);
+    document.querySelector(".add-register").addEventListener("click", () => {
+      createRegister();
     });
 
-    document.querySelector('.add-register').addEventListener('click', () => {
-      const index = document.querySelectorAll('.register').length;
-      const register = createRegister(index);
-      document.getElementById('registers').appendChild(register);
-    });
+    startingFloatInput.addEventListener("input", calculateTotals);
+    cashSalesInput.addEventListener("input", calculateTotals);
 
-    // Add first register on load
-    document.querySelector('.add-register').click();
+    window.onload = () => {
+      createRegister();
+    };
   </script>
 </body>
 </html>
